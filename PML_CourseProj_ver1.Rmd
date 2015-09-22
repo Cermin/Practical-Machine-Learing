@@ -1,0 +1,113 @@
+---
+title: "Practical Machine Learning Course Project"  
+output: html_document
+---
+*by Usha Morris*  
+*September 17, 2015* 
+
+##Overview 
+The data for this project comes from the following source:http://groupware.les.inf.puc-rio.br/har.
+This data has accelerometer measurements for 6 subjects taken on the belt, forearm, arm, and dumbell.
+The goal of this project is to use machine learning to build a model with the given training set and predict the outcome of the test set.
+
+
+```{r}
+#Read in the training data into the object,"data"
+data<-read.csv("pml-training.csv" ,na.strings = c("NA", "#DIV/0!", ""))
+```
+```{r,eval=FALSE}
+dim(data)  # 19622 160
+```
+
+```{r,eval=FALSE}
+str(data)  # Shows that there are lots of columns that have only NAs.
+```
+
+
+##Clean the data : drop the Columns with greater than 60% of rows with NAs.
+```{r}
+discardColumns <- data[ lapply( data, function(x) sum(is.na(x)) / length(x) ) > .60]
+drops <- colnames(discardColumns)
+newData<-data[,!(names(data) %in% drops)]; 
+newData<-newData[-1]
+```
+
+```{r,eval=FALSE}
+dim(newData)  #19622 59
+```
+
+After cleaning the data, I end up with only 59 variables. One of which is the predictor variable.
+```{r,message =FALSE}
+# enable multi-core processing since the processing was very slow without it
+library(doParallel)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+```
+            
+##Build Model using Random Forest to Predict the Classe Variable (categorical)
+I selected Random Forest for its accuracy. It generates an internal unbiased estimate of the generalization error as the forest building progresses.
+```{r,message=FALSE}
+library(caret)
+library(randomForest)
+# Set the training data to 70% and the testing data to 30%
+inTrain<-createDataPartition(y=newData$classe,p=0.70, list=FALSE)
+training<-newData[inTrain,]
+testing<-newData[-inTrain,]
+
+#define training control for cross validation
+#Using cross validation on the training improves model accuracy and prevents overfitting. 
+train_control <- trainControl(method ="cv", number=4)
+
+#train model and predict
+set.seed(233)
+modelRF<-train(classe~.,method="rf",data=training, trControl=train_control)
+modelRF$results  #to look at the in sample accuracy
+```
+Using cross validation, the in sample error rate  for mtry = 41 is (1-0.998)*100 which is 0.2%
+
+#Predict the model accuracy on the testing data
+```{r}
+predModelRF<-predict(modelRF,newdata=testing)
+confusionMatrix(predModelRF,testing$classe)$overall['Accuracy'] 
+```
+The out of sample error rate is (1-0.999)*100 which is 0.1%
+Since the accuracy results are exceptional, I proceeded with this model to make the predictions on the test data.
+
+#The top 30 variables of importance
+If I did not get a good out of sample error rate above, I would have proceeded to use the 
+varImp function for feature selection.  The other option would have been to use the findCorrelation function in the caret package to identify the variables that are highly correlated and ommiting the appropriate variables.
+```{r}
+important<-varImp(modelRF,scale=FALSE)
+plot(important,top=30)
+```
+
+#Predict the Final Outcome With Test Data
+```{r}
+pmlTest<-read.csv("pml-testing.csv" ,na.strings = c("NA", "#DIV/0!", ""))
+FinalPred<-predict(modelRF,newdata=pmlTest)
+
+```
+
+The script to submit my prediction results (FinalPred) on the pmlTest data.
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+  
+}
+pml_write_files(FinalPred)
+```
+I got all the 20 predictions correct after submitting the results.
+
+\pagebreak   
+
+#APPENDIX A  
+
+**Material Used for Reference**    
+1. wikipedia  
+2. All class material   
+3. http://machinelearningmastery.com/feature-selection-with-the-caret-r-package/  
+4. https://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm  
